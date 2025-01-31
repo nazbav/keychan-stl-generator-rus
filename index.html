@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Генератор брелка (Keychain) STL</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Bootstrap 5 CSS -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
+  <style>
+    body {
+      background-color: #f8f9fa;
+      padding-top: 30px;
+    }
+    .generator-container {
+      max-width: 700px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+    #previewCanvas {
+      width: 100%;
+      height: 400px;
+      display: block;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    .text-muted {
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container generator-container">
+  <h2 class="text-center">Генератор брелка (Keychain) STL</h2>
+  <p class="text-muted text-center">
+    Брелок с подложкой (скруглённые углы), отверстием для кольца и объёмным текстом (Arial Black).
+  </p>
+
+  <!-- Форма для параметров -->
+  <div class="mb-3">
+    <label for="keychainText" class="form-label">Текст на брелке:</label>
+    <input
+      type="text"
+      class="form-control"
+      id="keychainText"
+      value="HELLO"
+      placeholder="Введите ваш текст..."
+    />
+  </div>
+
+  <div class="row">
+    <!-- Размер текста -->
+    <div class="col-md-6 mb-3">
+      <label for="textSize" class="form-label">Размер букв (size):</label>
+      <input
+        type="number"
+        class="form-control"
+        id="textSize"
+        value="10"
+        step="1"
+        min="1"
+      />
+    </div>
+    <!-- Толщина текста -->
+    <div class="col-md-6 mb-3">
+      <label for="textThickness" class="form-label">Толщина текста:</label>
+      <input
+        type="number"
+        class="form-control"
+        id="textThickness"
+        value="2"
+        step="0.1"
+        min="0.1"
+      />
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Толщина подложки -->
+    <div class="col-md-6 mb-3">
+      <label for="baseThickness" class="form-label">Толщина подложки:</label>
+      <input
+        type="number"
+        class="form-control"
+        id="baseThickness"
+        value="2"
+        step="0.1"
+        min="0.1"
+      />
+    </div>
+    <!-- Радиус отверстия -->
+    <div class="col-md-6 mb-3">
+      <label for="holeRadius" class="form-label">Радиус отверстия (кольца):</label>
+      <input
+        type="number"
+        class="form-control"
+        id="holeRadius"
+        value="5"
+        step="0.5"
+        min="1"
+      />
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Отступы -->
+    <div class="col-md-6 mb-3">
+      <label for="margin" class="form-label">Отступ (margin) вокруг текста:</label>
+      <input
+        type="number"
+        class="form-control"
+        id="margin"
+        value="5"
+        step="1"
+        min="0"
+      />
+      <div class="form-text">
+        Определяет, насколько текст будет "окружён" полем подложки по периметру.
+      </div>
+    </div>
+    <!-- Скругление углов -->
+    <div class="col-md-6 mb-3">
+      <label for="cornerRadius" class="form-label">Скругление углов (radius):</label>
+      <input
+        type="number"
+        class="form-control"
+        id="cornerRadius"
+        value="10"
+        step="1"
+        min="0"
+      />
+      <div class="form-text">
+        Радиус скругления углов подложки.
+      </div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary w-100" onclick="generateKeychain()">
+    Сгенерировать STL
+  </button>
+
+  <!-- Превью рендеринга -->
+  <div class="my-4">
+    <canvas id="previewCanvas"></canvas>
+  </div>
+
+  <!-- Ссылка на скачивание STL -->
+  <a
+    id="downloadLink"
+    style="display:none;"
+    download="keychain.stl"
+    class="btn btn-success w-100"
+    >Скачать STL</a
+  >
+</div>
+
+<!-- Three.js и дополнительные скрипты (OrbitControls, FontLoader, STLExporter) -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
+
+<script>
+  let scene, camera, renderer, controls;
+  let baseMesh = null; // Подложка
+  let textMesh = null; // Текст
+  let fontGlobal = null; // Шрифт Arial Black (загружаем чуть ниже)
+
+  // Функция для добавления в Shape закруглённого прямоугольника
+  function createRoundedRect(shape, x, y, width, height, radius) {
+    // Минимум: если radius слишком большой, чтобы углы не "пересекались"
+    const r = Math.min(radius, width / 2, height / 2);
+    // Начинаем с нижней левой точки (учитываем отступ на r)
+    shape.moveTo(x + r, y);
+
+    // Нижняя горизонтальная линия
+    shape.lineTo(x + width - r, y);
+    // Скругление нижнего правого угла
+    shape.quadraticCurveTo(x + width, y, x + width, y + r);
+
+    // Правая вертикаль
+    shape.lineTo(x + width, y + height - r);
+    // Скругление верхнего правого угла
+    shape.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+
+    // Верхняя горизонтальная
+    shape.lineTo(x + r, y + height);
+    // Скругление верхнего левого угла
+    shape.quadraticCurveTo(x, y + height, x, y + height - r);
+
+    // Левая вертикальная
+    shape.lineTo(x, y + r);
+    // Скругление нижнего левого угла
+    shape.quadraticCurveTo(x, y, x + r, y);
+  }
+
+  // Инициализация сцены
+  function initScene() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf8f9fa);
+
+    // Камера
+    camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+    camera.position.set(0, 30, 60);
+
+    // Рендерер
+    renderer = new THREE.WebGLRenderer({
+      canvas: document.getElementById("previewCanvas"),
+      antialias: true
+    });
+    renderer.setSize(700, 400);
+
+    // Свет
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(50, 50, 50);
+    scene.add(dirLight);
+
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.3);
+    scene.add(ambLight);
+
+    // Контроллер OrbitControls
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    animate();
+  }
+
+  // Цикл рендера
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  // Загрузка шрифта (замените на вашу ссылку/путь, если требуется Arial Black)
+  const fontLoader = new THREE.FontLoader();
+  fontLoader.load(
+    // Пример шрифта (Optimer Bold). Для Arial Black ищите/добавьте свой файл .typeface.json
+    "https://threejs.org/examples/fonts/droid/droid_sans_regular.typeface.json",
+    function (font) {
+      fontGlobal = font;
+    }
+  );
+
+ function generateKeychain() {
+    if (!fontGlobal) {
+      alert("Шрифт ещё не загружен. Попробуйте чуть позже.");
+      return;
+    }
+
+    const textValue = document.getElementById("keychainText").value.trim();
+    if (!textValue) {
+      alert("Введите текст!");
+      return;
+    }
+
+    // Считываем параметры
+    const textSize = parseFloat(document.getElementById("textSize").value) || 10;
+    const textThickness = parseFloat(document.getElementById("textThickness").value) || 2;
+    const baseThickness = parseFloat(document.getElementById("baseThickness").value) || 2;
+    const holeRadius = parseFloat(document.getElementById("holeRadius").value) || 5;
+    const margin = parseFloat(document.getElementById("margin").value) || 5;
+    const cornerRadius = parseFloat(document.getElementById("cornerRadius").value) || 10;
+
+    // Очищаем сцену
+    scene.children = [];
+
+    // 1. Создаем геометрию подложки
+    const textGeometry = new THREE.TextGeometry(textValue, {
+      font: fontGlobal,
+      size: textSize,
+      height: textThickness,
+      curveSegments: 12, // Увеличили для сглаживания
+      bevelEnabled: false
+    });
+
+    // Вычисляем размеры текста
+    textGeometry.computeBoundingBox();
+    const textBox = textGeometry.boundingBox;
+    const textWidth = textBox.max.x - textBox.min.x;
+    const textHeight = textBox.max.y - textBox.min.y;
+
+    // Создаем форму для подложки
+    const baseHeight = textHeight + margin * 2;
+    const holeDiameter = holeRadius * 2;
+    const baseWidth = textWidth + margin * 3 + holeDiameter;
+
+    const shape = new THREE.Shape();
+    createRoundedRect(shape, 0, 0, baseWidth, baseHeight, cornerRadius);
+
+    // Добавляем отверстие
+    const holeCenterX = margin + holeRadius;
+    const holeCenterY = baseHeight / 2;
+    const holePath = new THREE.Path();
+    holePath.absellipse(
+      holeCenterX,
+      holeCenterY,
+      holeRadius,
+      holeRadius,
+      0,
+      Math.PI * 2,
+      false
+    );
+    shape.holes.push(holePath);
+
+    // Экструдируем подложку
+    const extrudeSettings = {
+      depth: baseThickness,
+      bevelEnabled: false
+    };
+    const baseGeometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+    // 2. Позиционируем текст
+    const regionStartX = holeDiameter + margin * 2;
+    const regionEndX = baseWidth - margin;
+    const regionWidth = regionEndX - regionStartX;
+    const centerX = regionStartX + regionWidth / 2;
+
+    const textOffsetX = centerX - textWidth / 2 - textBox.min.x;
+    const centerY = baseHeight / 2;
+    const textOffsetY = centerY - textHeight / 2 - textBox.min.y;
+
+    // Создаем матрицу трансформации для текста
+    const textMatrix = new THREE.Matrix4()
+      .makeTranslation(
+        textOffsetX,
+        textOffsetY,
+        baseThickness // Текст поверх подложки
+      );
+
+    // Применяем трансформацию к геометрии
+    textGeometry.applyMatrix4(textMatrix);
+
+    // 3. Объединяем геометрии
+    const mergedGeometry = THREE.BufferGeometryUtils.mergeBufferGeometries([
+      baseGeometry,
+      textGeometry
+    ]);
+
+    // Создаем единый меш
+    const material = new THREE.MeshStandardMaterial({ color: 0x1e88e5 });
+    const mergedMesh = new THREE.Mesh(mergedGeometry, material);
+    scene.add(mergedMesh);
+
+    // 4. Центрируем камеру
+    const bbox = new THREE.Box3().setFromObject(mergedMesh);
+    const center = bbox.getCenter(new THREE.Vector3());
+    controls.target.copy(center);
+    camera.position.set(center.x, center.y + 50, center.z + 100);
+
+    // 5. Экспорт в STL
+    exportToSTL(mergedMesh);
+  }
+
+  function exportToSTL(mesh) {
+    const exporter = new THREE.STLExporter();
+    const stlString = exporter.parse(mesh);
+
+    const blob = new Blob([stlString], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+
+    const downloadLink = document.getElementById("downloadLink");
+    downloadLink.href = url;
+    downloadLink.style.display = "inline-block";
+    downloadLink.textContent = "Скачать STL (брелок)";
+  }
+
+  // Инициализация при загрузке
+  initScene();
+</script>
+</body>
+</html>
+
+
+Напиши документацию для проекта на github (markdown)
